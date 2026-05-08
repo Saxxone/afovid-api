@@ -27,12 +27,14 @@ export class DeviceAvailabilityListener {
         select: { id: true },
       });
       for (const room of rooms) {
-        this.chatGateway.server.to(room.id).emit('recipient-devices-available', {
-          roomId: room.id,
-          recipientUserId: event.userId,
-          recipientDeviceId: event.deviceId,
-          source: event.source,
-        });
+        this.chatGateway.server
+          .to(room.id)
+          .emit('recipient-devices-available', {
+            roomId: room.id,
+            recipientUserId: event.userId,
+            recipientDeviceId: event.deviceId,
+            source: event.source,
+          });
       }
     } catch (err) {
       this.logger.warn(
@@ -43,4 +45,3 @@ export class DeviceAvailabilityListener {
     }
   }
 }
-

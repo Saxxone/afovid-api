@@ -68,7 +68,7 @@ export class AuthService {
     return { ...fullUser, ...tokens };
   }
 
-  async signInSuperAdmin(
+  async signInAdmin(
     usernameOrEmail: string,
     pass: string,
   ): Promise<
@@ -80,7 +80,7 @@ export class AuthService {
 
     if (!row.password) {
       throw new ForbiddenException(
-        'Superadmin login requires a password-based account',
+        'Admin login requires a password-based account',
       );
     }
 
@@ -89,8 +89,15 @@ export class AuthService {
       throw new UnauthorizedException();
     }
 
-    if (row.role !== UserRole.SUPERADMIN) {
-      throw new ForbiddenException('Superadmin access required');
+    if (
+      row.role !== UserRole.SUPERADMIN &&
+      row.role !== UserRole.ADMIN &&
+      row.role !== UserRole.ADMIN_USER_MANAGER &&
+      row.role !== UserRole.ADMIN_MODERATOR &&
+      row.role !== UserRole.ADMIN_FINANCE &&
+      row.role !== UserRole.ADMIN_SUPPORT
+    ) {
+      throw new ForbiddenException('Admin access required');
     }
 
     const fullUser = await this.prisma.user.findUniqueOrThrow({

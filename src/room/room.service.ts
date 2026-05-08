@@ -46,7 +46,9 @@ function latestChatInclude(callerDeviceId?: string) {
   };
 }
 
-function mapChatWithSenderIdentity<T extends { chats?: Array<any> }>(room: T): T {
+function mapChatWithSenderIdentity<T extends { chats?: Array<any> }>(
+  room: T,
+): T {
   return {
     ...room,
     chats: (room.chats ?? []).map(({ senderDevice, ...chat }) => ({
@@ -141,29 +143,28 @@ export class RoomService {
     if (cursor) {
       return this.prisma.chat
         .findMany({
-        where: { roomId },
-        take,
-        skip: 1,
-        cursor: { id: cursor },
-        orderBy: { createdAt: 'desc' },
-        include,
-      })
+          where: { roomId },
+          take,
+          skip: 1,
+          cursor: { id: cursor },
+          orderBy: { createdAt: 'desc' },
+          include,
+        })
         .then((rows) =>
           rows.map(({ senderDevice, ...chat }) => ({
             ...chat,
-            senderIdentityKeyCurve25519:
-              senderDevice.identityKeyCurve25519,
+            senderIdentityKeyCurve25519: senderDevice.identityKeyCurve25519,
           })),
         );
     }
     return this.prisma.chat
       .findMany({
-      where: { roomId },
-      orderBy: { createdAt: 'desc' },
-      skip: skipRaw,
-      take,
-      include,
-    })
+        where: { roomId },
+        orderBy: { createdAt: 'desc' },
+        skip: skipRaw,
+        take,
+        include,
+      })
       .then((rows) =>
         rows.map(({ senderDevice, ...chat }) => ({
           ...chat,

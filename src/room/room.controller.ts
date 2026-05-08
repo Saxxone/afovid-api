@@ -9,14 +9,19 @@ import {
   Post,
   Query,
   Request,
+  UseGuards,
 } from '@nestjs/common';
+import { RequiresFeatureFlag } from 'src/feature-flag/feature-flag.decorator';
+import { FeatureFlagGuard } from 'src/feature-flag/feature-flag.guard';
 import { RoomService } from './room.service';
 import { UpdateRoomDto } from './dto/update-room.dto';
 
 @Controller('rooms')
+@UseGuards(FeatureFlagGuard)
 export class RoomController {
   constructor(private readonly roomService: RoomService) {}
 
+  @RequiresFeatureFlag('messaging.rooms')
   @Get('/all')
   findAll(
     @Request() req: any,
@@ -37,6 +42,7 @@ export class RoomController {
     );
   }
 
+  @RequiresFeatureFlag('messaging.rooms')
   @Get('/chats/:id')
   async findChatsInRoom(
     @Param('id') id: string,
@@ -63,6 +69,7 @@ export class RoomController {
     );
   }
 
+  @RequiresFeatureFlag('messaging.directMessages')
   @Post('/find-create')
   findRoomByParticipantsOrCreate(
     @Request() req: { user: { userId: string } },
@@ -83,6 +90,7 @@ export class RoomController {
     );
   }
 
+  @RequiresFeatureFlag('messaging.rooms')
   @Patch('/update/:id')
   async update(
     @Param('id') id: string,
@@ -93,6 +101,7 @@ export class RoomController {
     return this.roomService.update(id, updateRoomDto);
   }
 
+  @RequiresFeatureFlag('messaging.rooms')
   @Get(':id')
   async findOne(
     @Param('id') id: string,
@@ -109,6 +118,7 @@ export class RoomController {
     );
   }
 
+  @RequiresFeatureFlag('messaging.rooms')
   @Delete(':id')
   async remove(
     @Param('id') id: string,

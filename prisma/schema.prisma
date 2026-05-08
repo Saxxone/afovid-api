@@ -14,7 +14,52 @@ datasource db {
 
 enum UserRole {
   USER
+  /// Legacy; migrated to ADMIN_USER_MANAGER in DB. Kept for Prisma / JWT compatibility.
+  ADMIN
   SUPERADMIN
+  ADMIN_USER_MANAGER
+  ADMIN_MODERATOR
+  ADMIN_FINANCE
+  ADMIN_SUPPORT
+}
+
+enum AdminPermission {
+  DASHBOARD_READ
+  USERS_READ
+  USERS_WRITE
+  USERS_ROLES_WRITE
+  POSTS_READ
+  POSTS_WRITE
+  FILES_READ
+  FILES_WRITE
+  COINS_READ
+  COINS_WRITE
+  COINS_PACKAGES_READ
+  COINS_PACKAGES_WRITE
+  COINS_LEDGER_READ
+  COINS_ADJUST
+  FEATURE_FLAGS_READ
+  FEATURE_FLAGS_WRITE
+  FEATURE_FLAGS_MANAGE
+}
+
+/** Who may read this flag via public GET /feature-flags (CLIENT_SAFE only). */
+enum FeatureFlagScope {
+  CLIENT_SAFE
+  ADMIN_ONLY
+}
+
+model FeatureFlag {
+  id             String            @id @default(uuid())
+  key            String            @unique
+  group          String
+  enabled        Boolean           @default(true)
+  description    String            @db.Text
+  scope          FeatureFlagScope  @default(CLIENT_SAFE)
+  updatedAt      DateTime          @updatedAt
+  updatedByEmail String?
+
+  @@index([group])
 }
 
 enum FileTranscodeStatus {
@@ -63,6 +108,9 @@ model User {
   coinPurchases             CoinPurchase[]
   postUnlocks               PostUnlock[]
   postWatchHistory          PostWatchHistory[]
+  hostedWatchSessions       WatchSession[]            @relation("WatchSessionHost")
+  watchSessionParticipations WatchSessionParticipant[]
+  watchSessionMessages      WatchSessionMessage[]
 }
 
 model Post {
@@ -100,6 +148,7 @@ model Post {
   pricedCostMinor          Int?
   postUnlocks              PostUnlock[]
   watchHistory             PostWatchHistory[]
+  watchSessions            WatchSession[]
   /// Optional embedded quote of another published post (not the same as `parentId` / comments).
   quotedPostId             String?
   quotedPost               Post?        @relation("PostQuotedPost", fields: [quotedPostId], references: [id], onDelete: SetNull)
@@ -469,4 +518,64 @@ model PostWatchHistory {
 
   @@unique([userId, postId])
   @@index([userId, lastWatchedAt])
+}
+
+enum WatchSessionStatus {
+  ACTIVE
+  ENDED
+}
+
+enum WatchParticipantStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model WatchSession {
+  id                     String             @id @default(uuid())
+  postId                 String
+  post                   Post               @relation(fields: [postId], references: [id], onDelete: Cascade)
+  hostId                 String
+  host                   User               @relation("WatchSessionHost", fields: [hostId], references: [id], onDelete: Cascade)
+  status                 WatchSessionStatus @default(ACTIVE)
+  /// When true, non-host joiners start as PENDING until the host approves.
+  requireHostApproval Boolean @default(false) @map("require_host_approval")
+  currentPositionSeconds Float              @default(0)
+  isPlaying              Boolean            @default(false)
+  expiresAt              DateTime
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  participants           WatchSessionParticipant[]
+  messages               WatchSessionMessage[]
+
+  @@index([postId])
+  @@index([hostId])
+  @@index([status, expiresAt])
+}
+
+model WatchSessionParticipant {
+  id        String                  @id @default(uuid())
+  sessionId String
+  session   WatchSession            @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status    WatchParticipantStatus @default(APPROVED)
+  joinedAt  DateTime                @default(now())
+
+  @@unique([sessionId, userId])
+  @@index([userId])
+  @@index([sessionId, status])
+}
+
+model WatchSessionMessage {
+  id        String        @id @default(uuid())
+  sessionId String
+  session   WatchSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  body      String        @db.VarChar(2000)
+  createdAt DateTime      @default(now())
+  deletedAt DateTime?
+
+  @@index([sessionId, createdAt])
 }

@@ -8,9 +8,12 @@ import {
   Put,
   Query,
   Request,
+  UseGuards,
 } from '@nestjs/common';
 import { Post as PostModel, Prisma } from '@prisma/client';
 import { Public } from 'src/auth/auth.guard';
+import { RequiresFeatureFlag } from 'src/feature-flag/feature-flag.decorator';
+import { FeatureFlagGuard } from 'src/feature-flag/feature-flag.guard';
 import { CreatePostDto } from './dto/create-post.dto';
 import { PostService } from './post.service';
 
@@ -46,9 +49,11 @@ function parsePostListPagination(q: {
 }
 
 @Controller('posts')
+@UseGuards(FeatureFlagGuard)
 export class PostController {
   constructor(private readonly postService: PostService) {}
 
+  @RequiresFeatureFlag('posting.drafts')
   @Post('create-draft')
   async createDraft(
     @Request() req: any,
@@ -68,6 +73,7 @@ export class PostController {
   }
 
   @Post('create-post')
+  /** Flags enforced inside PostService (short/long/video/monetization). */
   async createPost(
     @Request() req: any,
     @Body() postData: CreatePostDto,
@@ -85,6 +91,7 @@ export class PostController {
     );
   }
 
+  @RequiresFeatureFlag('posting.drafts')
   @Put('publish/:id')
   async publishPost(
     @Param('id') id: string,
@@ -100,6 +107,7 @@ export class PostController {
     });
   }
 
+  @RequiresFeatureFlag('posting.bookmarks')
   @Put('bookmark/:id')
   async bookmarkPost(
     @Param('id') id: string,
@@ -113,6 +121,7 @@ export class PostController {
     );
   }
 
+  @RequiresFeatureFlag('posting.likes')
   @Put('like/:id')
   async likePost(
     @Param('id') id: string,
@@ -126,6 +135,7 @@ export class PostController {
     );
   }
 
+  @RequiresFeatureFlag('social.history')
   @Post('watch/:id')
   async recordWatch(
     @Param('id') id: string,
@@ -134,6 +144,7 @@ export class PostController {
     return await this.postService.recordWatch(String(id), req.user.sub);
   }
 
+  @RequiresFeatureFlag('social.history')
   @Get('me/watch-history')
   async getMyWatchHistory(
     @Request() req: any,
@@ -152,6 +163,7 @@ export class PostController {
     });
   }
 
+  @RequiresFeatureFlag('social.history')
   @Get('me/liked-videos')
   async getMyLikedVideos(
     @Request() req: any,
@@ -171,6 +183,7 @@ export class PostController {
     });
   }
 
+  @RequiresFeatureFlag('coins.paidUnlocks')
   @Get('me/unlocked')
   async getMyUnlockedPosts(
     @Request() req: any,
@@ -190,6 +203,7 @@ export class PostController {
   }
 
   /** Must be registered before `@Get('/:id')` so `/posts/comments/:id` matches. */
+  @RequiresFeatureFlag('posting.comments')
   @Get('/comments/:id')
   async getCommentsForPost(
     @Request() req: any,
@@ -222,6 +236,7 @@ export class PostController {
     return await this.postService.viewSinglePost(id, req.user?.sub);
   }
 
+  @RequiresFeatureFlag('posting.likes')
   @Post('/check-like/:id')
   async checkLikedByUser(
     @Param('id') id: string,
@@ -234,6 +249,7 @@ export class PostController {
     );
   }
 
+  @RequiresFeatureFlag('posting.bookmarks')
   @Post('/check-bookmark/:id')
   async checkBookmarkedByUser(
     @Param('id') id: string,
@@ -251,6 +267,7 @@ export class PostController {
    * when `cursor` is set, falls back to chronological listing for stable cursor semantics.
    */
   @Public()
+  @RequiresFeatureFlag('social.homeFeed')
   @Post('feed')
   async getPublishedPosts(
     @Request() req: any,
@@ -286,6 +303,7 @@ export class PostController {
    * @param {string} id the id of the user whose posts should be returned
    * @returns post feed in descending order based on the skip and take values and the user id
    */
+  @RequiresFeatureFlag('social.profiles')
   @Get('user/:id/posts')
   async getUserPosts(
     @Param('id') id: string,
@@ -315,6 +333,7 @@ export class PostController {
     });
   }
 
+  @RequiresFeatureFlag('social.exploreSearch')
   @Post('/search')
   async getFilteredPosts(
     @Request() req: any,

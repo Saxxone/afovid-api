@@ -18,10 +18,13 @@ import {
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { CoinTxnType } from '@prisma/client';
+import { AdminPermission, CoinTxnType } from '@prisma/client';
 import { CoinWalletService } from 'src/coins/coin-wallet.service';
+import { RequiresFeatureFlag } from 'src/feature-flag/feature-flag.decorator';
+import { FeatureFlagGuard } from 'src/feature-flag/feature-flag.guard';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { SuperAdminGuard } from './super-admin.guard';
+import { Permissions } from './permissions.decorator';
+import { PermissionsGuard } from './permissions.guard';
 
 class AdminPatchCoinPackageDto {
   @IsOptional()
@@ -77,13 +80,15 @@ class AdminCoinAdjustmentDto {
 }
 
 @Controller('admin/coins')
-@UseGuards(SuperAdminGuard)
+@UseGuards(PermissionsGuard, FeatureFlagGuard)
 export class AdminCoinsController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly wallet: CoinWalletService,
   ) {}
 
+  @Permissions(AdminPermission.COINS_PACKAGES_READ)
+  @RequiresFeatureFlag('admin.coinPackages')
   @Get('packages')
   async listPackages() {
     return this.prisma.coinPackage.findMany({
@@ -91,6 +96,8 @@ export class AdminCoinsController {
     });
   }
 
+  @Permissions(AdminPermission.COINS_PACKAGES_WRITE)
+  @RequiresFeatureFlag('admin.coinPackages')
   @Patch('packages/:id')
   async patchPackage(
     @Param('id') id: string,
@@ -116,6 +123,8 @@ export class AdminCoinsController {
     });
   }
 
+  @Permissions(AdminPermission.COINS_LEDGER_READ)
+  @RequiresFeatureFlag('admin.coinLedger')
   @Get('ledger')
   async ledger(
     @Query('type') type?: CoinTxnType,
@@ -154,6 +163,8 @@ export class AdminCoinsController {
     return { items, total, skip, take };
   }
 
+  @Permissions(AdminPermission.COINS_ADJUST)
+  @RequiresFeatureFlag('coins.adminAdjustments')
   @Post('adjustments')
   async adjustment(@Body() body: AdminCoinAdjustmentDto) {
     return this.wallet.runWalletTransaction(async (tx) => {

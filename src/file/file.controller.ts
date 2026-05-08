@@ -11,6 +11,7 @@ import {
   Post,
   Request,
   Res,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { AnyFilesInterceptor } from '@nestjs/platform-express';
@@ -20,6 +21,9 @@ import { extname } from 'path';
 import type { Request as ExpressRequest, Response } from 'express';
 import { Public } from 'src/auth/auth.guard';
 import { StreamMonetizationService } from 'src/coins/stream-monetization.service';
+import { RequiresFeatureFlag } from 'src/feature-flag/feature-flag.decorator';
+import { FeatureFlagGuard } from 'src/feature-flag/feature-flag.guard';
+import { FeatureFlagService } from 'src/feature-flag/feature-flag.service';
 import { FileTranscodeStatus, Status } from '@prisma/client';
 import { UpdateFileDto } from './dto/update-file.dto';
 import { compressFiles } from './file.manager';
@@ -74,13 +78,16 @@ const storage = diskStorage({
 });
 
 @Controller('file')
+@UseGuards(FeatureFlagGuard)
 export class FileController {
   constructor(
     private readonly fileService: FileService,
     private readonly streamMonetization: StreamMonetizationService,
     private readonly r2Storage: R2StorageService,
+    private readonly featureFlags: FeatureFlagService,
   ) {}
 
+  @RequiresFeatureFlag('media.uploads')
   @UseInterceptors(
     AnyFilesInterceptor({
       storage: storage,
@@ -117,6 +124,7 @@ export class FileController {
     if (files.length === 0) throw new BadRequestException('No files found.');
 
     compressed_fiiles = await compressFiles(files);
+    await this.assertUploadSubtypeFlags(compressed_fiiles);
 
     return await this.fileService.create(compressed_fiiles, req.user!.sub);
   }
@@ -126,6 +134,8 @@ export class FileController {
     return this.fileService.findAll();
   }
 
+  @Public()
+  @RequiresFeatureFlag('media.secureStreaming')
   @Head('stream/:id')
   async streamFileHead(
     @Param('id') id: string,
@@ -135,6 +145,8 @@ export class FileController {
     await this.streamMedia(id, req, res, true);
   }
 
+  @Public()
+  @RequiresFeatureFlag('media.secureStreaming')
   @Get('stream/:id')
   async streamFileGet(
     @Param('id') id: string,
@@ -145,6 +157,7 @@ export class FileController {
   }
 
   @Public()
+  @RequiresFeatureFlag('media.publicMediaServing')
   @Head('media/:filename')
   async mediaHead(
     @Param('filename') filename: string,
@@ -155,6 +168,7 @@ export class FileController {
   }
 
   @Public()
+  @RequiresFeatureFlag('media.publicMediaServing')
   @Get('media/:filename')
   async mediaGet(
     @Param('filename') filename: string,
@@ -177,6 +191,26 @@ export class FileController {
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.fileService.remove(id);
+  }
+
+  private async assertUploadSubtypeFlags(files: Express.Multer.File[]) {
+    const kinds = new Set(
+      files.map((f) => {
+        const m = f.mimetype ?? '';
+        if (m.startsWith('image/')) return 'image' as const;
+        if (m.startsWith('video/')) return 'video' as const;
+        if (m.startsWith('audio/')) return 'audio' as const;
+        return 'other' as const;
+      }),
+    );
+    for (const k of kinds) {
+      if (k === 'image')
+        await this.featureFlags.assertEnabled('media.imageUploads');
+      else if (k === 'video')
+        await this.featureFlags.assertEnabled('media.videoUploads');
+      else if (k === 'audio')
+        await this.featureFlags.assertEnabled('media.audioUploads');
+    }
   }
 
   private async streamMedia(

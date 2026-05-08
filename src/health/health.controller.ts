@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import {
   DiskHealthIndicator,
@@ -9,10 +9,13 @@ import {
   PrismaHealthIndicator,
 } from '@nestjs/terminus';
 import { Public } from 'src/auth/auth.guard';
+import { RequiresFeatureFlag } from 'src/feature-flag/feature-flag.decorator';
+import { FeatureFlagGuard } from 'src/feature-flag/feature-flag.guard';
 import { api_base_url, ui_base_url } from '../utils';
 
 @SkipThrottle()
 @Controller('health')
+@UseGuards(FeatureFlagGuard)
 export class HealthController {
   constructor(
     private readonly health: HealthCheckService,
@@ -26,6 +29,7 @@ export class HealthController {
   ui_url = ui_base_url;
 
   @Public()
+  @RequiresFeatureFlag('platform.healthChecks')
   @Get('api')
   @HealthCheck()
   check() {
@@ -35,6 +39,7 @@ export class HealthController {
   }
 
   @Public()
+  @RequiresFeatureFlag('platform.healthChecks')
   @Get('ui')
   @HealthCheck()
   checkFrontend() {
@@ -49,6 +54,7 @@ export class HealthController {
   }
 
   @Public()
+  @RequiresFeatureFlag('platform.healthChecks')
   @Get('db')
   @HealthCheck()
   databaseCheck() {
@@ -58,6 +64,7 @@ export class HealthController {
   }
 
   @Public()
+  @RequiresFeatureFlag('platform.healthChecks')
   @Get('storage')
   @HealthCheck()
   storageCheck() {
@@ -68,6 +75,7 @@ export class HealthController {
   }
 
   @Public()
+  @RequiresFeatureFlag('platform.healthChecks')
   @Get('memory')
   @HealthCheck()
   memoryCheck() {

@@ -26,6 +26,8 @@ import { PrismaService } from './prisma/prisma.service';
 import { CoinsModule } from './coins/coins.module';
 import { AdminModule } from './admin/admin.module';
 import { CreatorModule } from './creator/creator.module';
+import { FeatureFlagModule } from './feature-flag/feature-flag.module';
+import { WatchTogetherModule } from './watch-together/watch-together.module';
 
 @Module({
   imports: [
@@ -36,6 +38,7 @@ import { CreatorModule } from './creator/creator.module';
       },
     }),
     PrismaModule,
+    FeatureFlagModule,
     ScheduleModule.forRoot(),
     EventEmitterModule.forRoot(),
     ConfigModule.forRoot(),
@@ -61,6 +64,7 @@ import { CreatorModule } from './creator/creator.module';
     CoinsModule,
     AdminModule,
     CreatorModule,
+    WatchTogetherModule,
   ],
   controllers: [AppController],
   providers: [

@@ -6,11 +6,14 @@ import {
   Body,
   Query,
   Request,
+  UseGuards,
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
 import { CoinTxnType } from '@prisma/client';
 import { JwtPayload } from 'src/auth/auth.guard';
+import { RequiresFeatureFlag } from 'src/feature-flag/feature-flag.decorator';
+import { FeatureFlagGuard } from 'src/feature-flag/feature-flag.guard';
 import { CreatorPayoutDto } from './dto/creator-payout.dto';
 import { CreatorPayoutService } from './creator-payout.service';
 import { CreatorStripeConnectService } from './creator-stripe-connect.service';
@@ -27,6 +30,7 @@ function parseLedgerType(raw?: string): CoinTxnType | undefined {
   return raw as CoinTxnType;
 }
 
+@UseGuards(FeatureFlagGuard)
 @UsePipes(
   new ValidationPipe({
     whitelist: true,
@@ -41,11 +45,13 @@ export class CreatorController {
     private readonly payout: CreatorPayoutService,
   ) {}
 
+  @RequiresFeatureFlag('creator.walletDashboard')
   @Get('wallet/summary')
   async walletSummary(@Request() req: { user: JwtPayload }) {
     return this.creatorWallet.getSummary(req.user.userId);
   }
 
+  @RequiresFeatureFlag('creator.analyticsLedger')
   @Get('wallet/ledger')
   async walletLedger(
     @Request() req: { user: JwtPayload },
@@ -62,16 +68,19 @@ export class CreatorController {
     return this.creatorWallet.getLedger(req.user.userId, { skip, take, type });
   }
 
+  @RequiresFeatureFlag('creator.stripeConnect')
   @Get('stripe/connect/status')
   async connectStatus(@Request() req: { user: JwtPayload }) {
     return this.connect.getConnectStatus(req.user.userId);
   }
 
+  @RequiresFeatureFlag('creator.stripeConnect')
   @Post('stripe/connect/onboarding-link')
   async onboardingLink(@Request() req: { user: JwtPayload }) {
     return this.connect.createOnboardingLink(req.user.userId);
   }
 
+  @RequiresFeatureFlag('creator.payoutRequests')
   @Post('payouts')
   async payouts(
     @Request() req: { user: JwtPayload },

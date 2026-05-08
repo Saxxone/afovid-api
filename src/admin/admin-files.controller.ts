@@ -9,9 +9,12 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { IsEnum } from 'class-validator';
-import { Status } from '@prisma/client';
+import { AdminPermission, Status } from '@prisma/client';
+import { RequiresFeatureFlag } from 'src/feature-flag/feature-flag.decorator';
+import { FeatureFlagGuard } from 'src/feature-flag/feature-flag.guard';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { SuperAdminGuard } from './super-admin.guard';
+import { Permissions } from './permissions.decorator';
+import { PermissionsGuard } from './permissions.guard';
 
 const ADMIN_FILE_STATUSES: ReadonlySet<Status> = new Set([
   Status.PENDING,
@@ -27,10 +30,12 @@ class AdminPatchFileDto {
 }
 
 @Controller('admin/files')
-@UseGuards(SuperAdminGuard)
+@UseGuards(PermissionsGuard, FeatureFlagGuard)
 export class AdminFilesController {
   constructor(private readonly prisma: PrismaService) {}
 
+  @Permissions(AdminPermission.FILES_READ)
+  @RequiresFeatureFlag('admin.files')
   @Get()
   async list(
     @Query('status') status?: Status,
@@ -82,6 +87,8 @@ export class AdminFilesController {
     return { items, total, skip, take };
   }
 
+  @Permissions(AdminPermission.FILES_WRITE)
+  @RequiresFeatureFlag('admin.files')
   @Patch(':id')
   async patchStatus(@Param('id') id: string, @Body() body: AdminPatchFileDto) {
     if (!ADMIN_FILE_STATUSES.has(body.status)) {

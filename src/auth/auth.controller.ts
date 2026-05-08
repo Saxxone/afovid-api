@@ -7,14 +7,18 @@ import {
   Post,
   Request,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common';
 import { UserService } from 'src/user/user.service';
 import { Public } from './auth.guard';
 import type { JwtPayload } from './auth.guard';
 import { AuthService } from './auth.service';
 import { SignInDto } from './dto/sign-in.dto';
+import { RequiresFeatureFlag } from 'src/feature-flag/feature-flag.decorator';
+import { FeatureFlagGuard } from 'src/feature-flag/feature-flag.guard';
 
 @Controller('auth')
+@UseGuards(FeatureFlagGuard)
 export class AuthController {
   constructor(
     private readonly userService: UserService,
@@ -23,6 +27,7 @@ export class AuthController {
 
   @HttpCode(HttpStatus.OK)
   @Public()
+  @RequiresFeatureFlag('auth.googleLogin')
   @Post('login/google')
   async googleLogin(@Body('token') token: string) {
     return await this.authService.signInGoogle(token);
@@ -30,6 +35,7 @@ export class AuthController {
 
   @HttpCode(HttpStatus.OK)
   @Public()
+  @RequiresFeatureFlag('auth.googleLogin')
   @Post('signup/google')
   async googleSignup(@Body('token') token: string) {
     return await this.authService.signUpGoogle(token);
@@ -37,6 +43,7 @@ export class AuthController {
 
   @HttpCode(HttpStatus.OK)
   @Public()
+  @RequiresFeatureFlag('auth.emailPasswordLogin')
   @Post('login')
   async signIn(@Body() signInDto: SignInDto) {
     return await this.authService.signIn(

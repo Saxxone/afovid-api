@@ -1,4 +1,11 @@
-import { UseFilters, UsePipes, ValidationPipe, Logger } from '@nestjs/common';
+import {
+  forwardRef,
+  Inject,
+  Logger,
+  UseFilters,
+  UsePipes,
+  ValidationPipe,
+} from '@nestjs/common';
 import {
   ConnectedSocket,
   MessageBody,
@@ -17,6 +24,16 @@ import { DeviceService } from '../device/device.service';
 import { RoomService } from '../room/room.service';
 import { JoinRoomDto, UpdateRoomDto } from '../room/dto/update-room.dto';
 import { AuthService } from 'src/auth/auth.service';
+import { FeatureFlagService } from 'src/feature-flag/feature-flag.service';
+import { WatchTogetherService } from 'src/watch-together/watch-together.service';
+import {
+  WatchJoinLeaveDto,
+  WatchPlaybackDto,
+  WatchStateRequestDto,
+  WatchChatSendDto,
+  WatchChatHistoryDto,
+  WatchReactDto,
+} from 'src/watch-together/dto/watch-socket.dto';
 
 /**
  * Per-user token-bucket style counters for expensive socket handlers.
@@ -31,6 +48,14 @@ interface RateBucket {
 
 const sendMessageBuckets = new Map<string, RateBucket>();
 const joinRoomBuckets = new Map<string, RateBucket>();
+const watchJoinBuckets = new Map<string, RateBucket>();
+const watchPlaybackBuckets = new Map<string, RateBucket>();
+const watchChatBuckets = new Map<string, RateBucket>();
+const watchReactBuckets = new Map<string, RateBucket>();
+
+function watchSocketRoom(sessionId: string): string {
+  return `watch:${sessionId}`;
+}
 
 function consumeRateLimit(
   store: Map<string, RateBucket>,
@@ -83,6 +108,9 @@ export class ChatGateway implements OnGatewayConnection {
     private readonly roomService: RoomService,
     private readonly deviceService: DeviceService,
     private readonly authService: AuthService,
+    private readonly featureFlags: FeatureFlagService,
+    @Inject(forwardRef(() => WatchTogetherService))
+    private readonly watchTogether: WatchTogetherService,
   ) {}
 
   @WebSocketServer()
@@ -98,6 +126,14 @@ export class ChatGateway implements OnGatewayConnection {
     const payload = await this.authService.validateAccessTokenString(token);
     if (!payload) {
       this.logger.debug('WebSocket: invalid access token, disconnecting');
+      client.disconnect(true);
+      return;
+    }
+
+    if (!(await this.featureFlags.isEnabled('messaging.realtimeSocket'))) {
+      this.logger.debug(
+        'WebSocket: realtime messaging disabled, disconnecting',
+      );
       client.disconnect(true);
       return;
     }
@@ -132,6 +168,7 @@ export class ChatGateway implements OnGatewayConnection {
     // Per-device room: envelopes fan out to a room named after the target
     // deviceId so only that device's sockets receive the ciphertext.
     void client.join(`device:${deviceId}`);
+    void client.join(`user:${payload.userId}`);
     void this.deviceService.touchLastSeen(deviceId);
   }
 
@@ -265,8 +302,7 @@ export class ChatGateway implements OnGatewayConnection {
           chatId: chat.id,
           senderUserId: chat.senderUserId,
           senderDeviceId: chat.senderDeviceId,
-          senderIdentityKeyCurve25519:
-            chat.senderDevice.identityKeyCurve25519,
+          senderIdentityKeyCurve25519: chat.senderDevice.identityKeyCurve25519,
           roomId: chat.roomId,
           createdAt: chat.createdAt,
           envelope: {
@@ -309,5 +345,265 @@ export class ChatGateway implements OnGatewayConnection {
     }
     const ids = Array.isArray(body?.envelopeIds) ? body.envelopeIds : [];
     return this.chatService.ackEnvelopes(userId, deviceId, ids.slice(0, 256));
+  }
+
+  /**
+   * Broadcasts when a watch-together session is ended (host or expiry).
+   */
+  broadcastWatchEnded(sessionId: string): void {
+    this.server
+      .to(watchSocketRoom(sessionId))
+      .emit('watch:ended', { sessionId });
+  }
+
+  /** Remove a user from the watch Socket.IO room and notify their clients. */
+  kickUserFromWatchSession(sessionId: string, targetUserId: string): void {
+    const room = watchSocketRoom(sessionId);
+    void this.server.in(room).fetchSockets().then((socks) => {
+      for (const s of socks) {
+        const uid = (s.data as SocketData | undefined)?.userId;
+        if (uid === targetUserId) {
+          void s.leave(room);
+        }
+      }
+    });
+    this.server.to(`user:${targetUserId}`).emit('watch:kicked', { sessionId });
+  }
+
+  notifyWatchInviteApproved(sessionId: string, targetUserId: string): void {
+    this.server
+      .to(`user:${targetUserId}`)
+      .emit('watch:invite-approved', { sessionId });
+  }
+
+  async emitWatchParticipantUpdate(sessionId: string): Promise<void> {
+    const payload = await this.watchTogether.getParticipantPayload(sessionId);
+    if (payload) {
+      this.server
+        .to(watchSocketRoom(sessionId))
+        .emit('watch:participant-update', payload);
+    }
+  }
+
+  @SubscribeMessage('watch:join')
+  async watchJoin(
+    @MessageBody() body: WatchJoinLeaveDto,
+    @ConnectedSocket() client: Socket,
+  ) {
+    const userId = (client.data as SocketData).userId;
+    if (!userId) {
+      throw new WsException('Unauthorized');
+    }
+    await this.featureFlags.assertEnabled('social.watchTogether');
+    if (!consumeRateLimit(watchJoinBuckets, userId, 120, 10_000)) {
+      throw new WsException('Too many watch join requests');
+    }
+
+    const reg = await this.watchTogether.registerParticipantForSession(
+      body.sessionId,
+      userId,
+    );
+    const state = await this.watchTogether.readSocketJoinState(
+      body.sessionId,
+      userId,
+    );
+
+    if (state.kind === 'rejected') {
+      throw new WsException('You cannot join this watch session');
+    }
+
+    if (state.kind === 'pending') {
+      const summary = await this.watchTogether.findSessionDetail(body.sessionId);
+      const hostIdForPending = summary?.hostId ?? '';
+      if (
+        reg.isNewPending &&
+        (await this.featureFlags.isEnabled('social.watchTogetherHostApproval'))
+      ) {
+        if (summary?.requireHostApproval) {
+          const u = await this.watchTogether.getUserPublicSummary(userId);
+          if (u && hostIdForPending) {
+            this.server.to(`user:${hostIdForPending}`).emit('watch:join-pending', {
+              sessionId: body.sessionId,
+              user: u,
+            });
+          }
+        }
+      }
+      return {
+        sessionId: body.sessionId,
+        ok: false,
+        pendingApproval: true,
+        position: summary?.currentPositionSeconds ?? 0,
+        isPlaying: summary?.isPlaying ?? false,
+        hostId: hostIdForPending,
+      };
+    }
+
+    const detail = state.detail;
+    void client.join(watchSocketRoom(body.sessionId));
+    const payload = await this.watchTogether.getParticipantPayload(
+      body.sessionId,
+    );
+    if (payload) {
+      this.server
+        .to(watchSocketRoom(body.sessionId))
+        .emit('watch:participant-update', payload);
+    }
+    return {
+      sessionId: body.sessionId,
+      ok: true,
+      position: detail.currentPositionSeconds,
+      isPlaying: detail.isPlaying,
+      hostId: detail.hostId,
+    };
+  }
+
+  @SubscribeMessage('watch:leave')
+  async watchLeave(
+    @MessageBody() body: WatchJoinLeaveDto,
+    @ConnectedSocket() client: Socket,
+  ) {
+    const userId = (client.data as SocketData).userId;
+    if (!userId) {
+      throw new WsException('Unauthorized');
+    }
+    await this.featureFlags.assertEnabled('social.watchTogether');
+    await this.watchTogether.leaveSession(body.sessionId, userId);
+    void client.leave(watchSocketRoom(body.sessionId));
+    const payload = await this.watchTogether.getParticipantPayload(
+      body.sessionId,
+    );
+    if (payload) {
+      this.server
+        .to(watchSocketRoom(body.sessionId))
+        .emit('watch:participant-update', payload);
+    }
+    return { sessionId: body.sessionId, ok: true };
+  }
+
+  @SubscribeMessage('watch:playback')
+  async watchPlayback(
+    @MessageBody() body: WatchPlaybackDto,
+    @ConnectedSocket() client: Socket,
+  ) {
+    const userId = (client.data as SocketData).userId;
+    if (!userId) {
+      throw new WsException('Unauthorized');
+    }
+    await this.featureFlags.assertEnabled('social.watchTogether');
+    if (!consumeRateLimit(watchPlaybackBuckets, userId, 90, 10_000)) {
+      throw new WsException('Too many playback updates');
+    }
+    const updated = await this.watchTogether.updatePlaybackState(
+      body.sessionId,
+      userId,
+      body.position,
+      body.isPlaying,
+    );
+    this.server.to(watchSocketRoom(body.sessionId)).emit('watch:state', {
+      sessionId: updated.id,
+      position: updated.currentPositionSeconds,
+      isPlaying: updated.isPlaying,
+      updatedByUserId: userId,
+    });
+    return { ok: true };
+  }
+
+  @SubscribeMessage('watch:chat-send')
+  async watchChatSend(
+    @MessageBody() body: WatchChatSendDto,
+    @ConnectedSocket() client: Socket,
+  ) {
+    const userId = (client.data as SocketData).userId;
+    if (!userId) {
+      throw new WsException('Unauthorized');
+    }
+    await this.featureFlags.assertEnabled('social.watchTogether');
+    await this.featureFlags.assertEnabled('social.watchTogetherSessionChat');
+    if (!consumeRateLimit(watchChatBuckets, userId, 24, 60_000)) {
+      throw new WsException('Too many chat messages');
+    }
+    const msg = await this.watchTogether.appendSessionChatMessage(
+      body.sessionId,
+      userId,
+      body.body,
+    );
+    this.server
+      .to(watchSocketRoom(body.sessionId))
+      .emit('watch:chat-message', msg);
+    return { ok: true };
+  }
+
+  @SubscribeMessage('watch:chat-history')
+  async watchChatHistory(
+    @MessageBody() body: WatchChatHistoryDto,
+    @ConnectedSocket() client: Socket,
+  ) {
+    const userId = (client.data as SocketData).userId;
+    if (!userId) {
+      throw new WsException('Unauthorized');
+    }
+    await this.featureFlags.assertEnabled('social.watchTogether');
+    await this.featureFlags.assertEnabled('social.watchTogetherSessionChat');
+    if (!consumeRateLimit(watchChatBuckets, userId, 30, 60_000)) {
+      throw new WsException('Too many history requests');
+    }
+    const messages = await this.watchTogether.listSessionChatHistory(
+      body.sessionId,
+      userId,
+      body.take,
+    );
+    return { sessionId: body.sessionId, messages };
+  }
+
+  @SubscribeMessage('watch:react')
+  async watchReact(
+    @MessageBody() body: WatchReactDto,
+    @ConnectedSocket() client: Socket,
+  ) {
+    const userId = (client.data as SocketData).userId;
+    if (!userId) {
+      throw new WsException('Unauthorized');
+    }
+    await this.featureFlags.assertEnabled('social.watchTogether');
+    await this.featureFlags.assertEnabled('social.watchTogetherSessionReactions');
+    if (!consumeRateLimit(watchReactBuckets, userId, 45, 10_000)) {
+      throw new WsException('Too many reactions');
+    }
+    const emoji = body.emoji.trim();
+    if (emoji.length < 1 || emoji.length > 32) {
+      throw new WsException('Invalid emoji');
+    }
+    await this.watchTogether.assertApprovedParticipant(body.sessionId, userId);
+    this.server.to(watchSocketRoom(body.sessionId)).emit('watch:reaction', {
+      sessionId: body.sessionId,
+      userId,
+      emoji,
+      clientTs: Date.now(),
+    });
+    return { ok: true };
+  }
+
+  @SubscribeMessage('watch:state-request')
+  async watchStateRequest(
+    @MessageBody() body: WatchStateRequestDto,
+    @ConnectedSocket() client: Socket,
+  ) {
+    const userId = (client.data as SocketData).userId;
+    if (!userId) {
+      throw new WsException('Unauthorized');
+    }
+    await this.featureFlags.assertEnabled('social.watchTogether');
+    const row = await this.watchTogether.getPlaybackStateForParticipant(
+      body.sessionId,
+      userId,
+    );
+    return {
+      sessionId: row.id,
+      position: row.currentPositionSeconds,
+      isPlaying: row.isPlaying,
+      status: row.status,
+      hostId: row.hostId,
+    };
   }
 }

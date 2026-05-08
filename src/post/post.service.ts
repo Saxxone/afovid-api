@@ -16,6 +16,7 @@ import {
   User,
 } from '@prisma/client';
 import { CoinPricingService } from 'src/coins/coin-pricing.service';
+import { FeatureFlagService } from 'src/feature-flag/feature-flag.service';
 import { FileService } from 'src/file/file.service';
 import {
   hasExternalFileCdnConfigured,
@@ -178,7 +179,49 @@ export class PostService {
     private readonly notificationService: NotificationService,
     private readonly streamMonetization: StreamMonetizationService,
     private readonly coinPricing: CoinPricingService,
+    private readonly flags: FeatureFlagService,
   ) {}
+
+  private async assertPostingRules(
+    data: CreatePostDto,
+    published: boolean,
+  ): Promise<void> {
+    if (!published) {
+      await this.flags.assertEnabled('posting.drafts');
+    } else if (data.type === PostType.LONG) {
+      await this.flags.assertEnabled('posting.createLongPost');
+    } else {
+      await this.flags.assertEnabled('posting.createShortPost');
+    }
+    if (data.parentId) {
+      await this.flags.assertEnabled('posting.comments');
+    }
+    if (data.quotedPostId) {
+      await this.flags.assertEnabled('posting.quotes');
+    }
+    if (data.monetizationEnabled) {
+      await this.flags.assertEnabled('coins.paidUnlocks');
+    }
+  }
+
+  /** After media URLs/types are resolved (short/long). */
+  private async assertPostingMediaRules(data: CreatePostDto): Promise<void> {
+    const types = new Set<string>();
+    if (data.type === PostType.SHORT) {
+      for (const t of data.mediaTypes ?? []) {
+        types.add(t);
+      }
+    } else if (data.longPost?.content) {
+      for (const c of data.longPost.content) {
+        for (const t of c.mediaTypes ?? []) {
+          types.add(t);
+        }
+      }
+    }
+    if (types.has('video')) {
+      await this.flags.assertEnabled('posting.uploadVideo');
+    }
+  }
 
   private loadPostAfterWrite(postId: string) {
     return this.prisma.post.findUniqueOrThrow({
@@ -487,6 +530,10 @@ export class PostService {
       return;
     }
 
+    if (!(await this.flags.isEnabled('coins.autoPricing'))) {
+      return;
+    }
+
     const urls = this.collectVideoUrlsFromPostRecord(post);
     if (urls.length === 0) {
       this.logger.warn(
@@ -710,6 +757,8 @@ export class PostService {
         }
       }
 
+      await this.assertPostingRules(data, published);
+
       const author = await this.prisma.user.findUniqueOrThrow({
         where: { email },
         select: { id: true },
@@ -750,6 +799,9 @@ export class PostService {
           );
         }
       }
+
+      await this.assertPostingMediaRules(data);
+
       const { parentId, videoDurationSeconds, ...rest } = data;
       void videoDurationSeconds;
       const createData: Prisma.PostCreateInput = {
@@ -854,6 +906,13 @@ export class PostService {
       return;
     }
 
+    if (!(await this.flags.isEnabled('notifications.socialEvents'))) {
+      return;
+    }
+    if (!(await this.flags.isEnabled('posting.comments'))) {
+      return;
+    }
+
     const parent_post = await this.findParentPost(options.parent_id, false);
     if (parent_post.authorId === options.post.authorId) {
       return;
@@ -923,6 +982,9 @@ export class PostService {
       };
     },
   ): Promise<void> {
+    if (!(await this.flags.isEnabled('posting.mentions'))) {
+      return;
+    }
     const handles = this.extractMentionUsernames(
       this.collectTextsForMentionsFromPost(post),
     );
@@ -970,6 +1032,9 @@ export class PostService {
     },
     liker: User,
   ): Promise<void> {
+    if (!(await this.flags.isEnabled('notifications.socialEvents'))) {
+      return;
+    }
     if (post.authorId === liker.id) {
       return;
     }
@@ -1201,7 +1266,20 @@ export class PostService {
     take: number;
     currentUserEmail?: string;
   }): Promise<Post[]> {
+    await this.flags.assertEnabled('social.homeFeed');
     const { skip, take, currentUserEmail } = params;
+
+    if (!(await this.flags.isEnabled('social.feedRanking'))) {
+      return this.getMultiplePosts({
+        where: { published: true },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+        cursor: undefined,
+        currentUserEmail,
+      });
+    }
+
     const cfg = getFeedRankingConfig();
 
     const ranked = await this.prisma.$queryRaw<Array<{ id: string }>>(

@@ -10,12 +10,16 @@ import {
   Request,
   UseGuards,
 } from '@nestjs/common';
-import { PostType, Prisma } from '@prisma/client';
+import { AdminPermission, PostType, Prisma } from '@prisma/client';
 import { IsBoolean, IsInt, IsOptional, Min } from 'class-validator';
 import { JwtPayload } from 'src/auth/auth.guard';
+import { RequiresFeatureFlag } from 'src/feature-flag/feature-flag.decorator';
+import { FeatureFlagGuard } from 'src/feature-flag/feature-flag.guard';
+import { FeatureFlagService } from 'src/feature-flag/feature-flag.service';
 import { PostService } from 'src/post/post.service';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { SuperAdminGuard } from './super-admin.guard';
+import { Permissions } from './permissions.decorator';
+import { PermissionsGuard } from './permissions.guard';
 
 function postRecordHasVideoMedia(post: {
   mediaTypes: string[];
@@ -41,13 +45,16 @@ class AdminPatchPostDto {
 }
 
 @Controller('admin/posts')
-@UseGuards(SuperAdminGuard)
+@UseGuards(PermissionsGuard, FeatureFlagGuard)
 export class AdminPostsController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly postService: PostService,
+    private readonly featureFlags: FeatureFlagService,
   ) {}
 
+  @Permissions(AdminPermission.POSTS_READ)
+  @RequiresFeatureFlag('admin.posts')
   @Get()
   async list(
     @Query('published') publishedRaw?: string,
@@ -62,6 +69,10 @@ export class AdminPostsController {
       Math.max(parseInt(takeRaw ?? '30', 10) || 30, 1),
       100,
     );
+
+    if (videosOnlyRaw === 'true') {
+      await this.featureFlags.assertEnabled('admin.videos');
+    }
 
     const where: Prisma.PostWhereInput = { deletedAt: null };
     if (publishedRaw === 'true') where.published = true;
@@ -135,11 +146,15 @@ export class AdminPostsController {
     return { items: listItems, total, skip, take };
   }
 
+  @Permissions(AdminPermission.POSTS_READ)
+  @RequiresFeatureFlag('admin.posts')
   @Get(':id')
   async getOne(@Param('id') id: string, @Request() req: { user: JwtPayload }) {
     return this.postService.viewSinglePost(id, req.user.sub);
   }
 
+  @Permissions(AdminPermission.POSTS_WRITE)
+  @RequiresFeatureFlag('admin.posts')
   @Patch(':id')
   async patchPublished(
     @Param('id') id: string,
@@ -211,6 +226,8 @@ export class AdminPostsController {
     });
   }
 
+  @Permissions(AdminPermission.POSTS_WRITE)
+  @RequiresFeatureFlag('admin.posts', 'coins.autoPricing')
   @Post(':id/reprice')
   async reprice(@Param('id') id: string) {
     const mediaRow = await this.prisma.post.findUniqueOrThrow({

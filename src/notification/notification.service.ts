@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { NotificationType } from '@prisma/client';
+import { FeatureFlagService } from 'src/feature-flag/feature-flag.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 import { UpdateNotificationDto } from './dto/update-notification.dto';
@@ -12,6 +13,7 @@ export class NotificationService {
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
     private readonly expoPushService: ExpoPushService,
+    private readonly flags: FeatureFlagService,
   ) {}
 
   async create(createNotificationDto: CreateNotificationDto) {
@@ -26,6 +28,21 @@ export class NotificationService {
         mentionedUserId,
         roomId,
       } = createNotificationDto;
+
+      if (type === NotificationType.MESSAGE) {
+        if (!(await this.flags.isEnabled('messaging.directMessages'))) {
+          return;
+        }
+      } else if (type === NotificationType.USER_MENTIONED) {
+        if (
+          !(await this.flags.isEnabled('posting.mentions')) ||
+          !(await this.flags.isEnabled('notifications.socialEvents'))
+        ) {
+          return;
+        }
+      } else if (!(await this.flags.isEnabled('notifications.socialEvents'))) {
+        return;
+      }
 
       const notification = await this.prisma.notification.create({
         data: {
@@ -74,20 +91,22 @@ export class NotificationService {
           break;
       }
 
-      void this.expoPushService
-        .sendForNotification({
-          recipientUserId: user.id,
-          title: 'afovid',
-          body: notification.description.slice(0, 200),
-          data: {
-            notificationId: notification.id,
-            postId: notification.postId ?? '',
-            commentId: notification.commentId ?? '',
-            roomId: notification.roomId ?? '',
-            type: notification.type,
-          },
-        })
-        .catch(() => undefined);
+      if (await this.flags.isEnabled('notifications.expoPush')) {
+        void this.expoPushService
+          .sendForNotification({
+            recipientUserId: user.id,
+            title: 'afovid',
+            body: notification.description.slice(0, 200),
+            data: {
+              notificationId: notification.id,
+              postId: notification.postId ?? '',
+              commentId: notification.commentId ?? '',
+              roomId: notification.roomId ?? '',
+              type: notification.type,
+            },
+          })
+          .catch(() => undefined);
+      }
 
       return notification;
     } catch (error) {

@@ -5,6 +5,7 @@ import { FilePlaybackKind, FileTranscodeStatus, Status } from '@prisma/client';
 import { readdir, rm, stat } from 'fs/promises';
 import { join } from 'path';
 import * as fs from 'fs/promises';
+import { FeatureFlagService } from 'src/feature-flag/feature-flag.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { R2StorageService } from './r2-storage.service';
 import {
@@ -37,6 +38,7 @@ export class VideoTranscodeProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
     private readonly r2: R2StorageService,
+    private readonly featureFlags: FeatureFlagService,
   ) {
     super();
   }
@@ -44,6 +46,12 @@ export class VideoTranscodeProcessor extends WorkerHost {
   async process(job: Job<{ fileId: string }>): Promise<void> {
     const fileId = job.data?.fileId;
     if (!fileId) {
+      return;
+    }
+    if (!(await this.featureFlags.isEnabled('media.videoTranscoding'))) {
+      this.logger.warn(
+        'video-transcode skipped: media.videoTranscoding disabled',
+      );
       return;
     }
     if (!isR2ObjectStoreEnabled() || !this.r2.getConfig()) {

@@ -1,0 +1,8 @@
+-- CreateEnum
+CREATE TYPE "AdminPermission" AS ENUM ('DASHBOARD_READ', 'USERS_READ', 'USERS_WRITE', 'POSTS_READ', 'POSTS_WRITE', 'FILES_READ', 'FILES_WRITE', 'COINS_READ', 'COINS_WRITE', 'FEATURE_FLAGS_READ', 'FEATURE_FLAGS_WRITE');
+
+-- AlterEnum
+ALTER TYPE "UserRole" ADD VALUE 'ADMIN';
+
+-- AlterTable
+ALTER TABLE "User" ADD COLUMN     "adminPermissions" "AdminPermission"[];

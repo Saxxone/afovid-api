@@ -1,12 +1,18 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
+import { AdminPermission } from '@prisma/client';
+import { RequiresFeatureFlag } from 'src/feature-flag/feature-flag.decorator';
+import { FeatureFlagGuard } from 'src/feature-flag/feature-flag.guard';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { SuperAdminGuard } from './super-admin.guard';
+import { Permissions } from './permissions.decorator';
+import { PermissionsGuard } from './permissions.guard';
 
 @Controller('admin/dashboard')
-@UseGuards(SuperAdminGuard)
+@UseGuards(PermissionsGuard, FeatureFlagGuard)
 export class AdminDashboardController {
   constructor(private readonly prisma: PrismaService) {}
 
+  @Permissions(AdminPermission.DASHBOARD_READ)
+  @RequiresFeatureFlag('admin.dashboard')
   @Get('summary')
   async summary() {
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);

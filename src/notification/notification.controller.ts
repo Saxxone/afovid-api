@@ -10,6 +10,7 @@ import {
   Query,
   Request,
   Sse,
+  UseGuards,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Cron } from '@nestjs/schedule';
@@ -27,8 +28,11 @@ import { UpdateNotificationDto } from './dto/update-notification.dto';
 import { ExpoPushService } from './expo-push.service';
 import { NotificationService } from './notification.service';
 import type { JwtPayload } from 'src/auth/auth.guard';
+import { RequiresFeatureFlag } from 'src/feature-flag/feature-flag.decorator';
+import { FeatureFlagGuard } from 'src/feature-flag/feature-flag.guard';
 
 @Controller('notifications')
+@UseGuards(FeatureFlagGuard)
 export class NotificationController {
   constructor(
     private readonly notificationService: NotificationService,
@@ -42,6 +46,7 @@ export class NotificationController {
   })
   triggerNotifications() {}
 
+  @RequiresFeatureFlag('notifications.realtimeSse')
   @Sse('sse')
   @Header('Content-Type', 'text/event-stream')
   async sse(
@@ -67,6 +72,7 @@ export class NotificationController {
     return merge(postCreated$, commentAdded$, postLiked$);
   }
 
+  @RequiresFeatureFlag('notifications.pushTokens')
   @Post('push-token')
   async registerPushToken(
     @Request() req: { user: JwtPayload },
@@ -80,6 +86,7 @@ export class NotificationController {
     return { ok: true as const };
   }
 
+  @RequiresFeatureFlag('notifications.inApp')
   @Get()
   findAll(
     @Request() req: { user: JwtPayload },
@@ -95,16 +102,19 @@ export class NotificationController {
     );
   }
 
+  @RequiresFeatureFlag('notifications.inApp')
   @Get(':id')
   findOne(@Param('id') id: string, @Request() req: { user: JwtPayload }) {
     return this.notificationService.findOneForUser(id, req.user.userId);
   }
 
+  @RequiresFeatureFlag('notifications.inApp')
   @Patch('read-all')
   markAllRead(@Request() req: { user: JwtPayload }) {
     return this.notificationService.markAllRead(req.user.userId);
   }
 
+  @RequiresFeatureFlag('notifications.inApp')
   @Patch(':id')
   update(
     @Param('id') id: string,
@@ -118,6 +128,7 @@ export class NotificationController {
     );
   }
 
+  @RequiresFeatureFlag('notifications.pushTokens')
   @Delete('push-token')
   async removePushToken(
     @Request() req: { user: JwtPayload },
@@ -127,6 +138,7 @@ export class NotificationController {
     return { ok: true as const };
   }
 
+  @RequiresFeatureFlag('notifications.inApp')
   @Delete(':id')
   remove(@Param('id') id: string, @Request() req: { user: JwtPayload }) {
     return this.notificationService.removeForUser(id, req.user.userId);
