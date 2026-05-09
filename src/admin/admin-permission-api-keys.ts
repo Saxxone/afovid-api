@@ -1,6 +1,6 @@
 import { AdminPermission } from '@prisma/client';
 
-/** Stable string keys consumed by `afovid-admin` (mirror in frontend constants). */
+/** Stable string keys consumed by `strauming-admin` (mirror in frontend constants). */
 export function adminPermissionToApiKey(permission: AdminPermission): string {
   const map: Record<AdminPermission, string> = {
     [AdminPermission.DASHBOARD_READ]: 'dashboard.read',

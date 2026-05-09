@@ -34,7 +34,7 @@ export class HealthController {
   @HealthCheck()
   check() {
     return this.health.check([
-      () => this.http.pingCheck('afovid-api', this.url + '/hello'),
+      () => this.http.pingCheck('strauming-api', this.url + '/hello'),
     ]);
   }
 
@@ -46,7 +46,7 @@ export class HealthController {
     return this.health.check([
       () =>
         this.http.responseCheck(
-          'afovid-web',
+          'strauming-web',
           this.ui_url + '/login',
           (res) => res.status === 200,
         ),
@@ -59,7 +59,7 @@ export class HealthController {
   @HealthCheck()
   databaseCheck() {
     return this.health.check([
-      () => this.http.pingCheck('afovid-db', 'database'),
+      () => this.http.pingCheck('strauming-db', 'database'),
     ]);
   }
 

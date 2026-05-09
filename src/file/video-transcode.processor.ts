@@ -93,7 +93,7 @@ export class VideoTranscodeProcessor extends WorkerHost {
     }
 
     const workRoot = await fs.mkdtemp(
-      join(process.env.TMPDIR || '/tmp', 'afovid-transcode-'),
+      join(process.env.TMPDIR || '/tmp', 'strauming-transcode-'),
     );
 
     try {

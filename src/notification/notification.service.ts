@@ -95,7 +95,7 @@ export class NotificationService {
         void this.expoPushService
           .sendForNotification({
             recipientUserId: user.id,
-            title: 'afovid',
+            title: 'strauming',
             body: notification.description.slice(0, 200),
             data: {
               notificationId: notification.id,

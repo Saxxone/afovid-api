@@ -73,7 +73,7 @@ export class CreatorStripeConnectService {
         capabilities: {
           transfers: { requested: true },
         },
-        metadata: { afovidUserId: user.id },
+        metadata: { straumingUserId: user.id },
       });
       accountId = account.id;
       await this.prisma.user.update({

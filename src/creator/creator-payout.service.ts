@@ -186,7 +186,7 @@ export class CreatorPayoutService {
           currency: 'usd',
           destination: user.stripeConnectAccountId,
           metadata: {
-            afovidUserId: userId,
+            straumingUserId: userId,
             coinsMinor: String(coinsMinor),
           },
         },
