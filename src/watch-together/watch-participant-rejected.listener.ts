@@ -15,7 +15,10 @@ export class WatchParticipantRejectedListener {
 
   @OnEvent(WATCH_PARTICIPANT_REJECTED)
   handleRejected(payload: WatchParticipantRejectedPayload): void {
-    this.chatGateway.kickUserFromWatchSession(payload.sessionId, payload.userId);
+    this.chatGateway.kickUserFromWatchSession(
+      payload.sessionId,
+      payload.userId,
+    );
     void this.chatGateway.emitWatchParticipantUpdate(payload.sessionId);
   }
 }

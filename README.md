@@ -1,4 +1,4 @@
-# Afovid API
+# strauming API
 
 The fun social app 
 

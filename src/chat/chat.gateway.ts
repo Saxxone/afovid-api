@@ -359,14 +359,17 @@ export class ChatGateway implements OnGatewayConnection {
   /** Remove a user from the watch Socket.IO room and notify their clients. */
   kickUserFromWatchSession(sessionId: string, targetUserId: string): void {
     const room = watchSocketRoom(sessionId);
-    void this.server.in(room).fetchSockets().then((socks) => {
-      for (const s of socks) {
-        const uid = (s.data as SocketData | undefined)?.userId;
-        if (uid === targetUserId) {
-          void s.leave(room);
+    void this.server
+      .in(room)
+      .fetchSockets()
+      .then((socks) => {
+        for (const s of socks) {
+          const uid = (s.data as SocketData | undefined)?.userId;
+          if (uid === targetUserId) {
+            void s.leave(room);
+          }
         }
-      }
-    });
+      });
     this.server.to(`user:${targetUserId}`).emit('watch:kicked', { sessionId });
   }
 
@@ -413,7 +416,9 @@ export class ChatGateway implements OnGatewayConnection {
     }
 
     if (state.kind === 'pending') {
-      const summary = await this.watchTogether.findSessionDetail(body.sessionId);
+      const summary = await this.watchTogether.findSessionDetail(
+        body.sessionId,
+      );
       const hostIdForPending = summary?.hostId ?? '';
       if (
         reg.isNewPending &&
@@ -422,10 +427,12 @@ export class ChatGateway implements OnGatewayConnection {
         if (summary?.requireHostApproval) {
           const u = await this.watchTogether.getUserPublicSummary(userId);
           if (u && hostIdForPending) {
-            this.server.to(`user:${hostIdForPending}`).emit('watch:join-pending', {
-              sessionId: body.sessionId,
-              user: u,
-            });
+            this.server
+              .to(`user:${hostIdForPending}`)
+              .emit('watch:join-pending', {
+                sessionId: body.sessionId,
+                user: u,
+              });
           }
         }
       }
@@ -566,7 +573,9 @@ export class ChatGateway implements OnGatewayConnection {
       throw new WsException('Unauthorized');
     }
     await this.featureFlags.assertEnabled('social.watchTogether');
-    await this.featureFlags.assertEnabled('social.watchTogetherSessionReactions');
+    await this.featureFlags.assertEnabled(
+      'social.watchTogetherSessionReactions',
+    );
     if (!consumeRateLimit(watchReactBuckets, userId, 45, 10_000)) {
       throw new WsException('Too many reactions');
     }
